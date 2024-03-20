@@ -222,14 +222,14 @@ if __name__ == '__main__':
     #     time.sleep(3)
 
 
-    # np.random.seed(0)
-    # with open('./loading_files/books_uri.txt', 'r') as f:
-    #     lines = f.readlines()
-    # lines = np.array(lines)
-    # indices = np.random.permutation(len(lines))
-    # lines = lines[indices]
-    # with open('./books_to_scrape.txt', 'w') as f:
-    #     f.write(''.join(lines))
+    np.random.seed(0)
+    with open('./loading_files/books_uri.txt', 'r') as f:
+        lines = f.readlines()
+    lines = np.array(lines)
+    indices = np.random.permutation(len(lines))
+    lines = lines[indices]
+    with open('./books_to_scrape.txt', 'w') as f:
+        f.write(''.join(lines))
 
 
     while True:
