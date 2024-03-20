@@ -33,13 +33,13 @@ class Scraper():
         self.scrape_all_catalogs()
         self.scrape_all_lists()
         self.scrape_all_books()
-        self.driver.quit()
         self.save_data()
 
 
     def save_data(self, filename):
-        data = pd.DataFrame(self.books_data)
-        with open(filename, 'r') as f:
+        columns = ['title', 'author', 'price', 'description', 'author_description', 'genres', 'n_ratings', 'n_reviews', 'ratings', 'pages_format', 'publication_info', 'literary_awards', 'original_title', 'series', 'characters', 'format', 'published', 'isbn', 'language', 'setting']
+        data = pd.DataFrame(self.books_data, columns=columns)
+        with open(filename, 'r', encoding='utf-8') as f:
             lines = f.readlines()
         if len(lines) > 0:
             data.to_csv(filename, mode='a', index=False, header=False)
@@ -59,13 +59,15 @@ class Scraper():
             f.write('\n'.join(self.genres_uri))
 
 
-    def scrape_all_catalogs(self):
+    def scrape_all_catalogs(self, save_progress=True):
         for genre in self.genres_uri:
             self.scrape_catalog(self.base_url + genre)
-        with open('./loading_files/lists_uri.txt', 'w') as f:
-            f.write('\n'.join(self.lists_uri))
-        with open('./loading_files/books_uri.txt', 'w') as f:
-            f.write('\n'.join(self.books_uri))
+        
+        if save_progress:
+            with open('./loading_files/lists_uri.txt', 'w') as f:
+                f.write('\n'.join(self.lists_uri))
+            with open('./loading_files/books_uri.txt', 'w') as f:
+                f.write('\n'.join(self.books_uri))
 
     def scrape_catalog(self, url):
         request_text = request.urlopen(url).read()
@@ -79,14 +81,19 @@ class Scraper():
                 self.books_uri.append(href)
 
 
-    def scrape_all_lists(self):
-        for list_uri in self.lists_uri:
-            self.scrape_list(self.base_url + list_uri)
-            with open('./loading_files/books_uri.txt', 'w') as f:
-                f.write('\n'.join(self.books_uri))
+    def scrape_all_lists(self, save_progress=True):
+        try:
+            for list_uri in self.lists_uri:
+                print(list_uri)
+                self.scrape_list(self.base_url + list_uri)
+        except:
+            if save_progress:
+                with open('./loading_files/books_uri.txt', 'w') as f:
+                    f.write('\n'.join(self.books_uri))
+            return list_uri
 
-    def scrape_list(self, url):
-        if 'page=16' in url:
+    def scrape_list(self, url, page_max=10):
+        if f'page={page_max+1}' in url:
             return
         request_text = request.urlopen(url).read()
         list_page = bs4.BeautifulSoup(request_text, "html.parser")
@@ -106,24 +113,35 @@ class Scraper():
         for book in self.books_uri:
             try:
                 self.scrape_book(self.base_url + book)
-            except Exception as e:
-                print(e)
-                return book
+            except:
+                continue
+        self.driver.quit()
             
-    def scrape_n_books(self, n, seed=0):
-        np.random.seed(seed)
+    def scrape_n_books(self, n):
         self.driver = webdriver.Firefox()
-        indices = np.random.permutation(len(self.books_uri))
-        books = [self.books_uri[i] for i in indices[:n]]
-        for book in books:
+        cpt = 0
+        for book in self.books_uri:
             try:
                 self.scrape_book(self.base_url + book)
+                cpt += 1
             except Exception as e:
-                print(e)
-                return book
+                continue
+            finally:
+                if cpt == n:
+                    break
+            
+        self.driver.quit()
+        
 
     def scrape_book(self, url):
         self.driver.get(url)
+
+        try:
+            close_button = self.driver.find_element(By.CSS_SELECTOR, 'button[aria-label="Close"]')
+            close_button.click()
+        except:
+            pass
+
         more_button = self.driver.find_element(By.CSS_SELECTOR, 'button[aria-label="Book details and editions"]')
         more_button.click()
 
@@ -134,8 +152,8 @@ class Scraper():
         book_data['price'] = float(re.search(r'\d+.\d+', book_page.find('button', {'class': 'Button--buy'}).find('span', {'class': 'Button__labelItem'}).text).group())
         
         descriptions = book_page.find_all('div', {'class': 'DetailsLayoutRightParagraph__widthConstrained'})
-        book_data['description'] = descriptions[0].find('span', {'class': 'Formatted'}).text
-        book_data['author_description'] = descriptions[1].find('span', {'class': 'Formatted'}).text
+        book_data['description'] = descriptions[0].find('span', {'class': 'Formatted'}).text.replace('\n', ' ')
+        book_data['author_description'] = descriptions[1].find('span', {'class': 'Formatted'}).text.replace('\n', ' ')
         book_data['genres'] = [block.text for block in book_page.find('div', {'data-testid': 'genresList'}).find_all('span', {'class': 'Button__labelItem'})]
 
         book_data['n_ratings'] = float(book_page.find('span', {'data-testid': 'ratingsCount'}).text.split()[0].replace(',', ''))
@@ -185,20 +203,60 @@ class Scraper():
 
 
 if __name__ == '__main__':
-    scraper = Scraper.load_from_files('./loading_files/genres_uri.txt', './loading_files/lists_uri.txt', './loading_files/books_uri.txt')
-    nom_livre = scraper.scrape_n_books(20000)
-    print(nom_livre)
-    scraper.save_data('./goodreads_data.csv')
-    scraper.driver.quit()
-    with open('./loading_files/books_uri.txt', 'r') as f:
-        lines = f.readlines()
-    ind = 0
-    for line in lines:
-        if nom_livre in line:
-            break
-        ind += 1
-    with open('./loading_files/books_uri.txt', 'w') as f:
-        f.write(''.join(lines[ind:]))
-    with open('scraped_books_uri.txt', 'a') as f:
-        f.write(''.join(lines[:ind]))
-    time.sleep(3)
+    # while True:
+    #     scraper = Scraper.load_from_files('./loading_files/genres_uri.txt', './lists_uri.txt', './loading_files/books_uri.txt')
+    #     nom_liste = scraper.scrape_all_lists()
+    #     print("Erreur, on recommence")
+    #     with open('./lists_uri.txt', 'r') as f:
+    #         lines = f.readlines()
+    #     print(f"Reste : {len(lines)} lignes")
+    #     if len(lines) == 0:
+    #         break
+    #     ind = 0
+    #     for line in lines:
+    #         if nom_liste in line:
+    #             break
+    #         ind += 1
+    #     with open('./lists_uri.txt', 'w') as f:
+    #         f.write(''.join(lines[ind:]))
+    #     time.sleep(3)
+
+
+    # np.random.seed(0)
+    # with open('./loading_files/books_uri.txt', 'r') as f:
+    #     lines = f.readlines()
+    # lines = np.array(lines)
+    # indices = np.random.permutation(len(lines))
+    # lines = lines[indices]
+    # with open('./books_to_scrape.txt', 'w') as f:
+    #     f.write(''.join(lines))
+
+
+    while True:
+        scraper = Scraper.load_from_files('./loading_files/genres_uri.txt', './loading_files/lists_uri.txt', './books_to_scrape.txt')
+        try:
+            print("Scraping")
+            scraper.scrape_n_books(500)
+        except:
+            print("Fin scraping (erreur)")
+        finally:
+            print("Sauvegarde des données")
+            scraper.save_data('./goodreads_data.csv')
+
+            with open('./scraped_books_uri.txt', 'r') as f:
+                lines = f.readlines()
+            last_scraped_book = lines[-1]
+
+            ind = 0
+            with open('./books_to_scrape.txt', 'r') as f:
+                lines2 = f.readlines()
+            
+            for line in lines:
+                if last_scraped_book == lines2:
+                    break
+                ind += 1
+
+            with open('./books_to_scrape.txt', 'w') as f:
+                f.write(''.join(lines2[ind+1:]))
+        print("Pause de 3 secondes")
+        time.sleep(3)
